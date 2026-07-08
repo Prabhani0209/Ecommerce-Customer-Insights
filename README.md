@@ -104,6 +104,11 @@ Run dashboard:
 
 python -m streamlit run dashboard/app.py
 
+
+## Dashboard Preview
+
+![E-Commerce Dashboard](assets/dashboard.png)
+
 ## Results
 
 The project provides insights into customer behavior and helps businesses make data-driven decisions.
