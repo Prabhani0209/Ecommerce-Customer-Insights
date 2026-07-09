@@ -1,218 +1,805 @@
 import streamlit as st
 import pandas as pd
-import os
 import plotly.express as px
-import plotly.graph_objects as go
+import os
 
-# -----------------------------
-# Page Configuration
-# -----------------------------
+# ==============================================================================
+# 1. GLOBAL LAYOUT CONFIGURATION & THEME
+# ==============================================================================
+
 st.set_page_config(
-    page_title="E-commerce Customer Insights",
-    page_icon="🛒",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    page_title="Global E-Commerce Enterprise Intelligence",
+    page_icon="🛍️",
+    layout="wide"
 )
 
-# -----------------------------
-# Maximum Readability & Large Font CSS Theme
-# -----------------------------
+# Premium dashboard styling
 st.markdown("""
 <style>
-    /* Premium background tint */
-    .stApp {
-        background-color: #F4F6F9;
-    }
-    
-    /* CRITICAL FIX: Constrains dashboard width to stop charts from flattening on ultra-wide screens */
-    .block-container {
-        max-width: 1100px !important;
-        padding-top: 40px !important;
-        padding-bottom: 60px !important;
-    }
-    
-    /* High contrast, large scale typography */
-    h1 { font-size: 52px !important; font-weight: 800; color: #1E293B; margin-bottom: 5px; }
-    h2 { font-weight: 700; color: #1E293B; font-size: 34px !important; margin-top: 15px !important; margin-bottom: 25px !important; }
-    p, .stMarkdown { font-size: 22px !important; color: #475569; line-height: 1.6; }
 
-    /* Massive, legible metric cards */
-    .kpi-card {
-        background-color: #FFFFFF;
-        padding: 30px 20px;
-        border-radius: 16px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-        border: 1px solid #EAEFF4;
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .kpi-label {
-        color: #64748B;
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .kpi-value {
-        color: #0F172A;
-        font-size: 36px;
-        font-weight: 800;
-    }
-    
-    /* Thick padded containers to push charts vertically */
-    .chart-container {
-        background-color: #FFFFFF;
-        padding: 40px;
-        border-radius: 20px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
-        border: 1px solid #EAEFF4;
-    }
-    
-    /* Huge separator spaces to guarantee an active scroll wheel experience */
-    .section-space {
-        margin-bottom: 80px;
-    }
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+.stMetric {
+    background-color: #ffffff;
+    padding: 1.25rem;
+    border-radius: 12px;
+    border: 1px solid #e6e9ef;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------
-# Project Path & Load Data
-# -----------------------------
-project_path = os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__))
+
+# ==============================================================================
+# 2. FILE PATH CONFIGURATION
+# ==============================================================================
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+PATH_CLEANED = os.path.join(
+    BASE_DIR,
+    "data",
+    "cleaned_online_retail.csv"
 )
-cleaned_file = os.path.join(project_path, "data", "cleaned_online_retail.csv")
-segment_file = os.path.join(project_path, "data", "final_customer_segments.csv")
+
+PATH_SEGMENT = os.path.join(
+    BASE_DIR,
+    "data",
+    "final_customer_segments.csv"
+)
+
+
+# ==============================================================================
+# 3. DATA LOADING FUNCTION
+# ==============================================================================
 
 @st.cache_data
-def load_and_process_data():
-    df_data = pd.read_csv(cleaned_file)
-    df_seg = pd.read_csv(segment_file)
-    
-    df_data["InvoiceDate"] = pd.to_datetime(df_data["InvoiceDate"])
-    df_data["Revenue"] = df_data["Quantity"] * df_data["Price"]
-    df_data["Month"] = df_data["InvoiceDate"].dt.to_period("M").astype(str)
-    
-    return df_data, df_seg
+def load_and_standardize_data():
+
+    sales_data = pd.read_csv(PATH_CLEANED)
+
+    segment_data = pd.read_csv(PATH_SEGMENT)
+
+
+    # Remove unwanted spaces in column names
+
+    sales_data.columns = [
+        col.strip()
+        for col in sales_data.columns
+    ]
+
+    segment_data.columns = [
+        col.strip()
+        for col in segment_data.columns
+    ]
+
+
+    # Detect Date Column
+
+    date_col = next(
+        (
+            c for c in sales_data.columns
+            if c.lower() in [
+                "invoicedate",
+                "invoice date",
+                "date"
+            ]
+        ),
+        None
+    )
+
+
+    if date_col:
+
+        sales_data["InvoiceDate"] = pd.to_datetime(
+            sales_data[date_col]
+        )
+
+        sales_data["Month"] = (
+            sales_data["InvoiceDate"]
+            .dt.to_period("M")
+            .astype(str)
+        )
+
+    else:
+
+        sales_data["Month"] = "Unknown"
+
+
+
+    # Detect Quantity Column
+
+    qty_col = next(
+        (
+            c for c in sales_data.columns
+            if c.lower() in [
+                "quantity",
+                "qty"
+            ]
+        ),
+        None
+    )
+
+
+    # Detect Price Column
+
+    price_col = next(
+        (
+            c for c in sales_data.columns
+            if c.lower() in [
+                "price",
+                "unitprice",
+                "unit_price"
+            ]
+        ),
+        None
+    )
+
+
+    # Create Revenue Column
+
+    if "Revenue" not in sales_data.columns:
+
+        if qty_col and price_col:
+
+            sales_data["Revenue"] = (
+                sales_data[qty_col] *
+                sales_data[price_col]
+            )
+
+        else:
+
+            sales_data["Revenue"] = 0
+
+
+
+    return sales_data, segment_data
+
+
+
+# ==============================================================================
+# 4. START APPLICATION
+# ==============================================================================
 
 try:
-    data, segments = load_and_process_data()
-except Exception as e:
-    st.error(f"Error loading dashboard source files: {e}")
+
+    df_sales, df_seg = load_and_standardize_data()
+
+
+except Exception as error:
+
+    st.error(
+        f"❌ Data loading failed: {error}"
+    )
+
     st.stop()
+    # ==============================================================================
+# 5. SIDEBAR CONTROL PANEL
+# ==============================================================================
 
-# -----------------------------
-# Title Header
-# -----------------------------
-st.markdown("<h1>Dashboard</h1>", unsafe_allow_html=True)
-st.markdown("<p>This dashboard analyzes customer purchasing behavior, sales trends, and customer segments using Machine Learning.</p>", unsafe_allow_html=True)
-st.markdown("<div class='section-space'></div>", unsafe_allow_html=True)
+st.sidebar.title("🏙️ Business Intelligence Suite")
 
-# -----------------------------
-# KPI Section (Stacked clean boxes)
-# -----------------------------
-total_revenue = data["Revenue"].sum()
-total_orders = data["Invoice"].nunique()
-total_customers = data["Customer ID"].nunique()
-total_products = data["StockCode"].nunique()
+st.sidebar.markdown("---")
 
-col1, col2, col3, col4 = st.columns(4)
 
-with col1:
-    st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Total Revenue</div><div class="kpi-value">₹{total_revenue:,.0f}</div></div>""", unsafe_allow_html=True)
-with col2:
-    st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Total Orders</div><div class="kpi-value">{total_orders:,}</div></div>""", unsafe_allow_html=True)
-with col3:
-    st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Total Customers</div><div class="kpi-value">{total_customers:,}</div></div>""", unsafe_allow_html=True)
-with col4:
-    st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Unique Products</div><div class="kpi-value">{total_products:,}</div></div>""", unsafe_allow_html=True)
-
-st.markdown("<div class='section-space'></div>", unsafe_allow_html=True)
-
-# -----------------------------
-# 1. Monthly Revenue Trend (Gradient Area Style)
-# -----------------------------
-st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-st.markdown("<h2>Payments Overview (Monthly Trend)</h2>", unsafe_allow_html=True)
-
-monthly_sales = data.groupby("Month")["Revenue"].sum().reset_index()
-
-fig_trend = go.Figure()
-fig_trend.add_trace(go.Scatter(
-    x=monthly_sales["Month"], 
-    y=monthly_sales["Revenue"],
-    mode='lines+markers',
-    line=dict(color='#6366F1', width=5), 
-    marker=dict(size=10, color='#6366F1'),
-    fill='tozeroy',
-    fillcolor='rgba(99, 102, 241, 0.08)', 
-    name="Revenue"
-))
-
-fig_trend.update_layout(
-    template="plotly_white",
-    # Fixed: Removed 'intensity' property and used standard typography sizes instead
-    xaxis=dict(showgrid=False, tickfont=dict(color='#1E293B', size=20)),
-    yaxis=dict(showgrid=True, gridcolor='#F1F5F9', tickfont=dict(color='#1E293B', size=20)),
-    margin=dict(l=20, r=20, t=20, b=20),
-    height=600  
-)
-st.plotly_chart(fig_trend, width="stretch")
-st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("<div class='section-space'></div>", unsafe_allow_html=True)
-
-# -----------------------------
-# 2. Top 10 Selling Products (Clean Sky Blue Bars)
-# -----------------------------
-st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-st.markdown("<h2>Top 10 Selling Products</h2>", unsafe_allow_html=True)
-
-top_products = (
-    data.groupby("Description")["Quantity"]
-    .sum().reset_index()
-    .sort_values(by="Quantity", ascending=False).head(10)
+app_route = st.sidebar.radio(
+    "Select Dashboard View:",
+    [
+        "📊 Executive Performance Summary",
+        "📈 Commercial Sales & Product Trends",
+        "👥 AI Customer Behavioral Clustering"
+    ]
 )
 
-fig_prod = px.bar(
-    top_products, x="Quantity", y="Description",
-    orientation='h', template="plotly_white"
+
+st.sidebar.markdown("---")
+
+st.sidebar.subheader("🌍 Market Filter")
+
+
+if "Country" in df_sales.columns:
+
+    country_list = sorted(
+        df_sales["Country"]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+
+    selected_country = st.sidebar.multiselect(
+        "Choose Countries",
+        country_list,
+        default=country_list[:5]
+    )
+
+
+    df_filtered = df_sales[
+        df_sales["Country"]
+        .isin(selected_country)
+    ]
+
+
+else:
+
+    df_filtered = df_sales.copy()
+
+
+
+# ==============================================================================
+# 6. EXECUTIVE PERFORMANCE DASHBOARD
+# ==============================================================================
+
+if app_route == "📊 Executive Performance Summary":
+
+
+    st.title(
+        "📊 Executive Performance Summary"
+    )
+
+    st.write(
+        "Real-time business KPIs extracted from customer transaction data."
+    )
+
+    st.divider()
+
+
+
+    invoice_col = next(
+        (
+            c for c in df_filtered.columns
+            if c.lower() in [
+                "invoiceno",
+                "invoice",
+                "invoice_no",
+                "invoicenumber"
+            ]
+        ),
+        None
+    )
+
+
+    customer_col = next(
+        (
+            c for c in df_filtered.columns
+            if c.lower() in [
+                "customerid",
+                "customer_id",
+                "customer id"
+            ]
+        ),
+        None
+    )
+
+
+    product_col = next(
+        (
+            c for c in df_filtered.columns
+            if c.lower() in [
+                "description",
+                "product_description",
+                "item"
+            ]
+        ),
+        None
+    )
+
+
+
+    revenue = df_filtered["Revenue"].sum()
+
+
+    orders = (
+        df_filtered[invoice_col]
+        .nunique()
+        if invoice_col else 0
+    )
+
+
+    customers = (
+        df_filtered[customer_col]
+        .nunique()
+        if customer_col else 0
+    )
+
+
+    products = (
+        df_filtered[product_col]
+        .nunique()
+        if product_col else 0
+    )
+
+
+
+    col1, col2, col3, col4 = st.columns(4)
+
+
+    col1.metric(
+        "💰 Total Revenue",
+        f"${revenue:,.2f}"
+    )
+
+
+    col2.metric(
+        "🧾 Total Orders",
+        f"{orders:,}"
+    )
+
+
+    col3.metric(
+        "👥 Customers",
+        f"{customers:,}"
+    )
+
+
+    col4.metric(
+        "📦 Products",
+        f"{products:,}"
+    )
+
+
+
+    st.subheader(
+        "📋 Transaction Explorer"
+    )
+
+
+    st.dataframe(
+        df_filtered.head(500),
+        use_container_width=True
+    )
+
+
+
+
+
+# ==============================================================================
+# 7. SALES AND PRODUCT ANALYTICS
+# ==============================================================================
+
+
+elif app_route == "📈 Commercial Sales & Product Trends":
+
+
+    st.title(
+        "📈 Commercial Sales & Product Trends"
+    )
+
+
+    st.write(
+        "Analyze revenue movement and best performing products."
+    )
+
+
+    st.divider()
+
+
+
+    left, right = st.columns(2)
+
+
+
+    # Revenue Trend
+
+    with left:
+
+
+        st.subheader(
+            "📅 Monthly Revenue Trend"
+        )
+
+
+        if "Month" in df_filtered.columns:
+
+
+            monthly_sales = (
+                df_filtered
+                .groupby("Month")["Revenue"]
+                .sum()
+                .reset_index()
+            )
+
+
+            revenue_chart = px.line(
+                monthly_sales,
+                x="Month",
+                y="Revenue",
+                markers=True,
+                template="plotly_white",
+                title="Revenue Growth Over Time"
+            )
+
+
+            revenue_chart.update_traces(
+                line_width=3
+            )
+
+
+            st.plotly_chart(
+                revenue_chart,
+                use_container_width=True
+            )
+
+
+        else:
+
+            st.warning(
+                "Date information unavailable."
+            )
+
+
+
+    # Product Ranking
+
+
+    with right:
+
+
+        st.subheader(
+            "🏆 Top Selling Products"
+        )
+
+
+        product_col = next(
+            (
+                c for c in df_filtered.columns
+                if c.lower() in [
+                    "description",
+                    "product_description",
+                    "item"
+                ]
+            ),
+            None
+        )
+
+
+        qty_col = next(
+            (
+                c for c in df_filtered.columns
+                if c.lower() in [
+                    "quantity",
+                    "qty"
+                ]
+            ),
+            None
+        )
+
+
+        if product_col and qty_col:
+
+
+            top_products = (
+                df_filtered
+                .groupby(product_col)[qty_col]
+                .sum()
+                .sort_values(
+                    ascending=False
+                )
+                .head(10)
+                .reset_index()
+            )
+
+
+            product_chart = px.bar(
+                top_products,
+                x=qty_col,
+                y=product_col,
+                orientation="h",
+                template="plotly_white"
+            )
+
+
+            product_chart.update_layout(
+                yaxis={
+                    "categoryorder":
+                    "total ascending"
+                }
+            )
+
+
+            st.plotly_chart(
+                product_chart,
+                use_container_width=True
+            )
+
+
+        else:
+
+            st.warning(
+                "Product information unavailable."
+            )
+            # ==============================================================================
+# 8. AI CUSTOMER BEHAVIORAL CLUSTERING
+# ==============================================================================
+
+elif app_route == "👥 AI Customer Behavioral Clustering":
+
+    st.title(
+        "👥 AI Customer Behavioral Clustering"
+    )
+
+    st.write(
+        "Machine Learning based customer segmentation using RFM analysis."
+    )
+
+    st.divider()
+
+
+
+    left, right = st.columns(2)
+
+
+
+    # Detect required clustering columns
+
+    recency_col = next(
+        (
+            c for c in df_seg.columns
+            if c.lower() in [
+                "recency",
+                "recency_score"
+            ]
+        ),
+        None
+    )
+
+
+    monetary_col = next(
+        (
+            c for c in df_seg.columns
+            if c.lower() in [
+                "monetary",
+                "monetary_value",
+                "monetary_score"
+            ]
+        ),
+        None
+    )
+
+
+    cluster_col = next(
+        (
+            c for c in df_seg.columns
+            if c.lower() in [
+                "cluster",
+                "segment",
+                "segments"
+            ]
+        ),
+        None
+    )
+
+
+    customer_col = next(
+        (
+            c for c in df_seg.columns
+            if c.lower() in [
+                "customerid",
+                "customer_id"
+            ]
+        ),
+        None
+    )
+
+
+
+    # --------------------------------------------------------------------------
+    # Scatter Plot
+    # --------------------------------------------------------------------------
+
+    with left:
+
+        st.subheader(
+            "🎯 Customer Cluster Map"
+        )
+
+
+        if recency_col and monetary_col and cluster_col:
+
+
+            df_seg[cluster_col] = (
+                df_seg[cluster_col]
+                .astype(str)
+            )
+
+
+            hover = (
+                [customer_col]
+                if customer_col
+                else None
+            )
+
+
+            cluster_chart = px.scatter(
+
+                df_seg,
+
+                x=recency_col,
+
+                y=monetary_col,
+
+                color=cluster_col,
+
+                log_y=True,
+
+                hover_data=hover,
+
+                title="K-Means Customer Segmentation",
+
+                labels={
+
+                    recency_col:
+                    "Recency (Days)",
+
+
+                    monetary_col:
+                    "Monetary Value ($)",
+
+
+                    cluster_col:
+                    "Customer Cluster"
+
+                },
+
+                template="plotly_white",
+
+                color_discrete_sequence=
+                px.colors.qualitative.Safe
+            )
+
+
+
+            cluster_chart.update_traces(
+
+                marker=dict(
+
+                    size=10,
+
+                    opacity=0.75
+
+                )
+
+            )
+
+
+
+            st.plotly_chart(
+
+                cluster_chart,
+
+                use_container_width=True
+
+            )
+
+
+        else:
+
+
+            st.warning(
+
+                "Cluster mapping requires Recency, Monetary and Cluster columns."
+
+            )
+
+
+
+    # --------------------------------------------------------------------------
+    # Cluster Distribution
+    # --------------------------------------------------------------------------
+
+    with right:
+
+
+        st.subheader(
+            "📊 Cluster Distribution"
+        )
+
+
+        if cluster_col:
+
+
+            cluster_count = (
+
+                df_seg[cluster_col]
+
+                .value_counts()
+
+                .reset_index()
+
+            )
+
+
+            cluster_count.columns = [
+
+                "Cluster",
+
+                "Customers"
+
+            ]
+
+
+
+            st.dataframe(
+
+                cluster_count,
+
+                use_container_width=True
+
+            )
+
+
+
+            pie = px.pie(
+
+                cluster_count,
+
+                names="Cluster",
+
+                values="Customers",
+
+                title="Customer Segment Share",
+
+                template="plotly_white",
+
+                color_discrete_sequence=
+                px.colors.qualitative.Safe
+
+            )
+
+
+
+            st.plotly_chart(
+
+                pie,
+
+                use_container_width=True
+
+            )
+
+
+
+        else:
+
+
+            st.warning(
+
+                "Cluster column not detected."
+
+            )
+
+
+
+
+
+# ==============================================================================
+# FOOTER
+# ==============================================================================
+
+st.divider()
+
+
+st.markdown(
+
+"""
+
+<center>
+
+<h4>
+🛍️ Global E-Commerce Enterprise Intelligence Dashboard
+</h4>
+
+<p>
+Built using Python | Pandas | Plotly | Streamlit
+</p>
+
+</center>
+
+""",
+
+unsafe_allow_html=True
+
 )
-fig_prod.update_traces(marker_color="#00D2FF", marker_line_width=0)
-fig_prod.update_layout(
-    yaxis={'categoryorder':'total ascending', 'tickfont': dict(color='#1E293B', size=18)},
-    xaxis={'tickfont': dict(color='#1E293B', size=20), 'gridcolor': '#F1F5F9'},
-    margin=dict(l=20, r=20, t=20, b=20), 
-    height=650
-)
-st.plotly_chart(fig_prod, width="stretch")
-st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("<div class='section-space'></div>", unsafe_allow_html=True)
-
-# -----------------------------
-# 3. Customer Segments (Sleek Columns)
-# -----------------------------
-st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-st.markdown("<h2>Profit This Week (Customer Segments)</h2>", unsafe_allow_html=True)
-
-segment_count = segments["Customer Segment"].value_counts().reset_index()
-segment_count.columns = ["Segment", "Count"]
-
-fig_seg = px.bar(
-    segment_count, x="Segment", y="Count",
-    template="plotly_white"
-)
-fig_seg.update_traces(marker_color="#0066FF")
-fig_seg.update_layout(
-    showlegend=False, 
-    xaxis={'tickfont': dict(color='#1E293B', size=22)},
-    yaxis={'gridcolor': '#F1F5F9', 'tickfont': dict(color='#1E293B', size=20)},
-    margin=dict(l=20, r=20, t=20, b=20), 
-    height=600
-)
-st.plotly_chart(fig_seg, width="stretch")
-st.markdown('</div>', unsafe_allow_html=True)
-
-st.toast("Dashboard optimized for widescreen scrolling layout!", icon="🎯")
